@@ -14,32 +14,66 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
+// ── Startup check ──
+if (!GEMINI_KEY) {
+  console.error('❌ GEMINI_API_KEY is not set in .env — translation will not work!');
+} else {
+  console.log('✅ GEMINI_API_KEY loaded:', GEMINI_KEY.slice(0, 8) + '...');
+}
+
 // Store rooms: roomCode -> { en: socketId, hi: socketId }
 const rooms = {};
 
 async function translate(text, from, to) {
   const names = { en: 'English', hi: 'Hindi' };
+
+  if (!GEMINI_KEY) {
+    console.error('translate() called but GEMINI_API_KEY is missing');
+    return null;
+  }
+
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `Translate this ${names[from]} text to ${names[to]}. Return ONLY the translated text, no explanations.\n\nText: ${text}`
-            }]
-          }]
-        })
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
+    const body = {
+      contents: [{
+        parts: [{
+          text: `Translate this ${names[from]} text to ${names[to]}. Return ONLY the translated text, no explanations, no quotes, no extra text.\n\nText: ${text}`
+        }]
+      }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 512,
       }
-    );
+    };
+
+    console.log(`[translate] ${from}→${to}: "${text.slice(0, 60)}"`);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
     const data = await response.json();
-    console.log('Gemini response:', JSON.stringify(data).slice(0, 300));
-    if (data.error) console.error('Gemini error:', data.error.message);
-    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+
+    // Log full response on error
+    if (!response.ok || data.error) {
+      console.error('[translate] Gemini API error:', JSON.stringify(data, null, 2));
+      return null;
+    }
+
+    const translated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+    if (!translated) {
+      console.error('[translate] Empty result from Gemini. Full response:', JSON.stringify(data, null, 2));
+      return null;
+    }
+
+    console.log(`[translate] Result: "${translated.slice(0, 80)}"`);
+    return translated;
+
   } catch (e) {
-    console.error('Translate error:', e.message);
+    console.error('[translate] Network/parse error:', e.message);
     return null;
   }
 }
@@ -63,6 +97,7 @@ io.on('connection', (socket) => {
     socket.roomCode = code;
     socket.lang = lang;
     socket.emit('room-created', { code });
+    console.log(`[room] Created ${code} by ${lang} user`);
   });
 
   // Join existing room
@@ -79,6 +114,7 @@ io.on('connection', (socket) => {
 
     // Notify both users
     io.to(code).emit('partner-joined', { lang });
+    console.log(`[room] ${lang} user joined ${code}`);
   });
 
   // Send message
@@ -89,30 +125,44 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     if (!room) return;
 
-    // Send original to sender
+    // Send original to sender immediately (no translation yet)
     socket.emit('chat', { text, lang: from, type: 'sent', translated: null });
 
     // Translate
     const translation = await translate(text, from, to);
+    const finalTranslation = translation || '(translation unavailable)';
 
-    // Send translated to other person
+    // Send translated to receiver
     const otherSocketId = room[to];
     if (otherSocketId) {
-      io.to(otherSocketId).emit('chat', { text, lang: from, type: 'received', translated: translation });
+      io.to(otherSocketId).emit('chat', {
+        text,
+        lang: from,
+        type: 'received',
+        translated: finalTranslation
+      });
     }
 
-    // Update sender with translation
-    socket.emit('translation-update', { original: text, translated: translation, to });
+    // Update sender's message bubble with translation
+    socket.emit('translation-update', {
+      original: text,
+      translated: finalTranslation,
+      to
+    });
   });
 
   // Disconnect
   socket.on('disconnect', () => {
     const code = socket.roomCode;
     if (code && rooms[code]) {
+      console.log(`[room] ${socket.lang} user left ${code}`);
       delete rooms[code][socket.lang];
       io.to(code).emit('partner-left');
       // Clean up empty rooms
-      if (!rooms[code].en && !rooms[code].hi) delete rooms[code];
+      if (!rooms[code].en && !rooms[code].hi) {
+        delete rooms[code];
+        console.log(`[room] Room ${code} deleted (empty)`);
+      }
     }
   });
 });
