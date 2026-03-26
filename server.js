@@ -156,9 +156,10 @@ io.on('connection', (socket) => {
     const code = socket.roomCode;
     if (code && rooms[code]) {
       console.log(`[room] ${socket.lang} user left ${code}`);
-      delete rooms[code][socket.lang];
+      // Set null instead of delete — keeps room object alive for the remaining user
+      rooms[code][socket.lang] = null;
       io.to(code).emit('partner-left');
-      // Clean up empty rooms
+      // Clean up only when BOTH seats are empty
       if (!rooms[code].en && !rooms[code].hi) {
         delete rooms[code];
         console.log(`[room] Room ${code} deleted (empty)`);
