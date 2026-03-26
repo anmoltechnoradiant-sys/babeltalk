@@ -12,68 +12,27 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-
-// ── Startup check ──
-if (!GEMINI_KEY) {
-  console.error('❌ GEMINI_API_KEY is not set in .env — translation will not work!');
-} else {
-  console.log('✅ GEMINI_API_KEY loaded:', GEMINI_KEY.slice(0, 8) + '...');
-}
-
 // Store rooms: roomCode -> { en: socketId, hi: socketId }
 const rooms = {};
 
 async function translate(text, from, to) {
-  const names = { en: 'English', hi: 'Hindi' };
-
-  if (!GEMINI_KEY) {
-    console.error('translate() called but GEMINI_API_KEY is missing');
-    return null;
-  }
-
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_KEY}`;
-    const body = {
-      contents: [{
-        parts: [{
-          text: `Translate this ${names[from]} text to ${names[to]}. Return ONLY the translated text, no explanations, no quotes, no extra text.\n\nText: ${text}`
-        }]
-      }],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 512,
-      }
-    };
-
     console.log(`[translate] ${from}→${to}: "${text.slice(0, 60)}"`);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
+    const response = await fetch(url);
     const data = await response.json();
 
-    // Log full response on error
-    if (!response.ok || data.error) {
-      console.error('[translate] Gemini API error:', JSON.stringify(data, null, 2));
+    const result = data.responseData?.translatedText;
+
+    if (!result) {
+      console.error('[translate] Empty result. Response:', JSON.stringify(data));
       return null;
     }
 
-    const translated = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!translated) {
-      console.error('[translate] Empty result from Gemini. Full response:', JSON.stringify(data, null, 2));
-      return null;
-    }
-
-    console.log(`[translate] Result: "${translated.slice(0, 80)}"`);
-    return translated;
-
+    console.log(`[translate] Result: "${result.slice(0, 80)}"`);
+    return result;
   } catch (e) {
-    console.error('[translate] Network/parse error:', e.message);
+    console.error('[translate] Error:', e.message);
     return null;
   }
 }
@@ -156,10 +115,8 @@ io.on('connection', (socket) => {
     const code = socket.roomCode;
     if (code && rooms[code]) {
       console.log(`[room] ${socket.lang} user left ${code}`);
-      // Set null instead of delete — keeps room object alive for the remaining user
       rooms[code][socket.lang] = null;
       io.to(code).emit('partner-left');
-      // Clean up only when BOTH seats are empty
       if (!rooms[code].en && !rooms[code].hi) {
         delete rooms[code];
         console.log(`[room] Room ${code} deleted (empty)`);
