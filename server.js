@@ -12,34 +12,18 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Store rooms: roomCode -> { en: socketId, hi: socketId }
 const rooms = {};
 
 async function translate(text, from, to) {
   try {
     console.log(`[translate] ${from}→${to}: "${text.slice(0, 60)}"`);
-
-    // Use Google Translate unofficial API — handles Hinglish perfectly
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0'
-      }
-    });
-
+    const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const data = await response.json();
-
-    // Response format: [ [ ["translated", "original"], ... ], ... ]
     const result = data[0]?.map(chunk => chunk[0]).join('') || null;
-
-    if (!result) {
-      console.error('[translate] Empty result');
-      return null;
-    }
-
+    if (!result) { console.error('[translate] Empty result'); return null; }
     console.log(`[translate] Result: "${result.slice(0, 80)}"`);
     return result;
-
   } catch (e) {
     console.error('[translate] Error:', e.message);
     return null;
@@ -71,7 +55,6 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     if (!room) return socket.emit('error', { msg: 'Room not found!' });
     if (room[lang]) return socket.emit('error', { msg: `${lang === 'en' ? 'English' : 'Hindi'} seat already taken!` });
-
     room[lang] = socket.id;
     socket.join(code);
     socket.roomCode = code;
@@ -81,6 +64,7 @@ io.on('connection', (socket) => {
     console.log(`[room] ${lang} user joined ${code}`);
   });
 
+  // ── TEXT CHAT ──
   socket.on('message', async ({ text }) => {
     const code = socket.roomCode;
     const from = socket.lang;
@@ -95,19 +79,106 @@ io.on('connection', (socket) => {
 
     const otherSocketId = room[to];
     if (otherSocketId) {
-      io.to(otherSocketId).emit('chat', {
-        text,
-        lang: from,
-        type: 'received',
-        translated: finalTranslation
+      io.to(otherSocketId).emit('chat', { text, lang: from, type: 'received', translated: finalTranslation });
+    }
+    socket.emit('translation-update', { original: text, translated: finalTranslation, to });
+  });
+
+  // ── SPEECH MESSAGE (audio call transcript) ──
+  socket.on('speech-message', async ({ text }) => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+
+    const translation = await translate(text, from, to);
+    const finalTranslation = translation || text;
+
+    // Send translated text to the other person (they will speak it)
+    const otherSocketId = room[to];
+    if (otherSocketId) {
+      io.to(otherSocketId).emit('speak-translated', {
+        original: text,
+        translated: finalTranslation,
+        fromLang: from,
+        toLang: to
       });
     }
 
-    socket.emit('translation-update', {
-      original: text,
-      translated: finalTranslation,
-      to
-    });
+    // Show in sender's chat as well
+    socket.emit('chat', { text, lang: from, type: 'sent', translated: finalTranslation });
+  });
+
+  // ── WebRTC SIGNALING ──
+  socket.on('webrtc-offer', ({ offer }) => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('webrtc-offer', { offer });
+  });
+
+  socket.on('webrtc-answer', ({ answer }) => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('webrtc-answer', { answer });
+  });
+
+  socket.on('webrtc-ice', ({ candidate }) => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('webrtc-ice', { candidate });
+  });
+
+  socket.on('call-request', () => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('call-request');
+  });
+
+  socket.on('call-accept', () => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('call-accept');
+  });
+
+  socket.on('call-reject', () => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('call-reject');
+  });
+
+  socket.on('call-end', () => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+    const otherSocketId = room[to];
+    if (otherSocketId) io.to(otherSocketId).emit('call-end');
   });
 
   socket.on('disconnect', () => {
