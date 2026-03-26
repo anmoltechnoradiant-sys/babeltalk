@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BabelTalk – Live Translation Chat</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #070710;
+  --surface: #0f0f1a;
+  --surface2: #181825;
+  --border: #252538;
+  --en: #22d3ee;
+  --hi: #fb923c;
+  --en-glow: rgba(34,211,238,0.15);
+  --hi-glow: rgba(251,146,60,0.15);
+  --text: #e8e8f0;
+  --muted: #5a5a72;
+  --green: #4ade80;
+  --red: #f87171;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: linear-gradient(rgba(34,211,238,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34,211,238,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none; z-index: 0;
+}
+
+/* ── LOBBY ── */
+#lobby {
+  position: relative; z-index: 1;
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 24px;
+}
+.brand { font-family: 'Syne', sans-serif; font-size: clamp(2.4rem,6vw,4rem); font-weight: 800; letter-spacing: -2px; text-align: center; margin-bottom: 6px; }
+.brand .b1 { color: var(--en); } .brand .b2 { color: var(--hi); }
+.brand-sub { color: var(--muted); font-size: .88rem; text-align: center; margin-bottom: 44px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 24px; padding: 36px; width: 100%; max-width: 460px;
+  display: flex; flex-direction: column; gap: 24px;
+}
+.label { font-family: 'DM Mono', monospace; font-size: .68rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 10px; }
+
+.role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.role-card {
+  padding: 16px; border-radius: 14px; border: 2px solid var(--border);
+  background: var(--surface2); cursor: pointer; transition: all .2s; text-align: center;
+}
+.role-card:hover { border-color: var(--muted); }
+.role-card.sel-en { border-color: var(--en); background: var(--en-glow); }
+.role-card.sel-hi { border-color: var(--hi); background: var(--hi-glow); }
+.role-flag { font-size: 1.8rem; margin-bottom: 6px; }
+.role-name { font-family: 'Syne', sans-serif; font-weight: 700; font-size: .85rem; }
+.role-desc { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .72rem; font-family: 'DM Mono', monospace; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+input.room-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px; color: var(--text);
+  font-family: 'DM Mono', monospace; font-size: .88rem; outline: none; transition: border-color .2s;
+}
+input.room-input:focus { border-color: var(--en); }
+input.room-input::placeholder { color: var(--muted); }
+
+.btn-group { display: flex; flex-direction: column; gap: 10px; }
+.btn {
+  width: 100%; padding: 14px; border-radius: 12px; border: none;
+  font-family: 'Syne', sans-serif; font-size: .95rem; font-weight: 700;
+  cursor: pointer; transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-create { background: var(--en); color: #000; }
+.btn-create:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-join { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn-join:hover { border-color: var(--hi); color: var(--hi); }
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+
+.error-msg { color: var(--red); font-size: .82rem; text-align: center; min-height: 20px; }
+
+/* ── CHAT SCREEN ── */
+#chatscreen {
+  display: none; position: relative; z-index: 1;
+  min-height: 100vh; flex-direction: column;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.topbar-brand { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.1rem; letter-spacing: -.5px; }
+.topbar-brand .b1 { color: var(--en); } .topbar-brand .b2 { color: var(--hi); }
+.status-pill {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 100px; padding: 6px 14px; font-size: .78rem; color: var(--muted);
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: pulse 1.5s infinite; }
+.dot.online { background: var(--green); }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+
+.share-bar {
+  background: linear-gradient(90deg, rgba(34,211,238,0.06), rgba(251,146,60,0.06));
+  border-bottom: 1px solid var(--border); padding: 10px 20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.share-label { font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.share-code {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 12px; font-family: 'DM Mono', monospace;
+  font-size: .82rem; color: var(--en); outline: none; min-width: 0;
+}
+.copy-btn {
+  padding: 7px 14px; border-radius: 8px; border: 1px solid var(--en);
+  background: var(--en-glow); color: var(--en); font-size: .78rem;
+  font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .2s;
+}
+.copy-btn:hover { background: var(--en); color: #000; }
+
+.messages {
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 14px;
+  min-height: 0; height: calc(100vh - 200px);
+}
+.messages::-webkit-scrollbar { width: 3px; }
+.messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.msg {
+  max-width: 75%; display: flex; flex-direction: column; gap: 4px;
+  animation: msgIn .2s ease;
+}
+@keyframes msgIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+.msg.sent { align-self: flex-end; align-items: flex-end; }
+.msg.received { align-self: flex-start; align-items: flex-start; }
+
+.msg-meta { font-size: .65rem; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.msg-dot { width: 5px; height: 5px; border-radius: 50%; }
+
+.msg-original {
+  padding: 10px 14px; border-radius: 16px; font-size: .9rem; line-height: 1.5;
+  border: 1px solid var(--border); background: var(--surface2);
+}
+.msg.sent .msg-original { border-radius: 16px 16px 4px 16px; }
+.msg.received .msg-original { border-radius: 16px 16px 16px 4px; }
+
+.msg-translated {
+  font-size: .82rem; line-height: 1.4; padding: 7px 12px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); font-style: italic;
+}
+.msg-translated.en { color: var(--en); border-color: rgba(34,211,238,0.2); }
+.msg-translated.hi { color: var(--hi); border-color: rgba(251,146,60,0.2); }
+.translating { color: var(--muted); font-size: .75rem; }
+
+.waiting-msg {
+  text-align: center; color: var(--muted); font-size: .85rem;
+  margin: auto; display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.waiting-msg .big { font-size: 2.5rem; }
+
+.input-bar {
+  padding: 16px 20px; border-top: 1px solid var(--border);
+  background: var(--surface); display: flex; gap: 10px; align-items: flex-end;
+}
+.msg-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 14px; padding: 12px 16px; color: var(--text);
+  font-family: 'DM Sans', sans-serif; font-size: .9rem; outline: none;
+  resize: none; transition: border-color .2s; max-height: 120px; line-height: 1.5;
+}
+.msg-input:focus { border-color: var(--en); }
+.msg-input::placeholder { color: var(--muted); }
+.send-btn {
+  width: 46px; height: 46px; border-radius: 12px; border: none;
+  background: var(--en); color: #000; font-size: 1.2rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all .2s; flex-shrink: 0;
+}
+.send-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.send-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+.toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 20px; font-size: .85rem; opacity: 0; transition: all .3s; pointer-events: none; z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- LOBBY -->
+<div id="lobby">
+  <div class="brand"><span class="b1">Babel</span><span class="b2">Talk</span></div>
+  <div class="brand-sub">Real-time English ↔ Hindi translation chat · Free</div>
+
+  <div class="card">
+    <div>
+      <div class="label">Main kaun si language mein baat karta hoon?</div>
+      <div class="role-grid">
+        <div class="role-card" id="role-en" onclick="selectLang('en')">
+          <div class="role-flag">🇬🇧</div>
+          <div class="role-name">English</div>
+          <div class="role-desc">Person 1</div>
+        </div>
+        <div class="role-card" id="role-hi" onclick="selectLang('hi')">
+          <div class="role-flag">🇮🇳</div>
+          <div class="role-name">Hindi</div>
+          <div class="role-desc">Person 2</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-create" id="btn-create" onclick="createRoom()" disabled>✦ Naya Room Banao</button>
+    </div>
+
+    <div class="divider">ya existing room join karo</div>
+
+    <div>
+      <div class="label">Room Code</div>
+      <input class="room-input" id="room-code-input" placeholder="e.g. lion-tiger-42" />
+    </div>
+    <button class="btn btn-join" id="btn-join" onclick="joinRoom()" disabled>→ Room Join Karo</button>
+
+    <div class="error-msg" id="lobby-error"></div>
+  </div>
+</div>
+
+<!-- CHAT SCREEN -->
+<div id="chatscreen" style="display:none; flex-direction:column; min-height:100vh; position:relative; z-index:1;">
+  <div class="topbar">
+    <div class="topbar-brand"><span class="b1">Babel</span><span class="b2">Talk</span></div>
+    <div class="status-pill">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Connecting...</span>
+    </div>
+    <div style="font-family:'DM Mono',monospace;font-size:.75rem;color:var(--muted)" id="my-lang-label"></div>
+  </div>
+
+  <div class="share-bar">
+    <span class="share-label">🔗 Share room code:</span>
+    <input class="share-code" id="share-code" readonly />
+    <button class="copy-btn" onclick="copyCode()">Copy</button>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="waiting-msg" id="waiting-msg">
+      <div class="big">⏳</div>
+      <div>Doosre bande ka intezaar hai...</div>
+      <div style="font-size:.78rem">Upar wala room code share karo</div>
+    </div>
+  </div>
+
+  <div class="input-bar">
+    <textarea class="msg-input" id="msg-input" placeholder="Type karo..." rows="1"
+      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button class="send-btn" id="send-btn" onclick="sendMsg()">➤</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const socket = io();
+let myLang = null;
+let partnerOnline = false;
+let roomCode = null;
+
+// ── LANG SELECT ──
+function selectLang(lang) {
+  myLang = lang;
+  document.getElementById('role-en').className = 'role-card' + (lang === 'en' ? ' sel-en' : '');
+  document.getElementById('role-hi').className = 'role-card' + (lang === 'hi' ? ' sel-hi' : '');
+  document.getElementById('btn-create').disabled = false;
+  document.getElementById('btn-join').disabled = false;
+}
+
+// ── ROOM ACTIONS ──
+function createRoom() {
+  if (!myLang) return;
+  socket.emit('create-room', { lang: myLang });
+}
+
+function joinRoom() {
+  const code = document.getElementById('room-code-input').value.trim().toLowerCase();
+  if (!code) return showLobbyError('Room code likhna zaroori hai!');
+  if (!myLang) return showLobbyError('Pehle language select karo!');
+  socket.emit('join-room', { code, lang: myLang });
+}
+
+// ── SOCKET EVENTS ──
+socket.on('room-created', ({ code }) => {
+  roomCode = code;
+  enterChatScreen();
+});
+
+socket.on('joined', ({ code }) => {
+  roomCode = code;
+  enterChatScreen();
+});
+
+socket.on('error', ({ msg }) => {
+  showLobbyError(msg);
+});
+
+socket.on('partner-joined', ({ lang }) => {
+  partnerOnline = true;
+  document.getElementById('waiting-msg')?.remove();
+  setStatus(true, `${lang === 'en' ? '🇬🇧 English' : '🇮🇳 Hindi'} wala join ho gaya!`);
+  showToast('✅ Doosra banda join ho gaya!');
+});
+
+socket.on('partner-left', () => {
+  partnerOnline = false;
+  setStatus(false, 'Partner chala gaya');
+  addSystemMsg('⚠️ Doosra banda disconnect ho gaya');
+});
+
+socket.on('chat', ({ text, lang, type, translated }) => {
+  addMessage(text, lang, type, translated);
+});
+
+socket.on('translation-update', ({ original, translated, to }) => {
+  // Update the last sent message with translation
+  const msgs = document.querySelectorAll('.msg.sent');
+  const last = msgs[msgs.length - 1];
+  if (last) {
+    const transEl = last.querySelector('.msg-translated');
+    if (transEl) {
+      transEl.className = `msg-translated ${to}`;
+      transEl.textContent = translated || '(translation unavailable)';
+    }
+  }
+});
+
+// ── CHAT SCREEN ──
+function enterChatScreen() {
+  document.getElementById('lobby').style.display = 'none';
+  const cs = document.getElementById('chatscreen');
+  cs.style.display = 'flex';
+  document.getElementById('share-code').value = roomCode;
+  const langLabel = myLang === 'en' ? '🇬🇧 English' : '🇮🇳 Hindi';
+  document.getElementById('my-lang-label').textContent = `Aap: ${langLabel}`;
+  setStatus(false, 'Waiting for partner...');
+}
+
+function setStatus(online, text) {
+  document.getElementById('status-dot').className = 'dot' + (online ? ' online' : '');
+  document.getElementById('status-text').textContent = text;
+}
+
+// ── MESSAGES ──
+function addMessage(text, fromLang, type, translated) {
+  const waitEl = document.getElementById('waiting-msg');
+  if (waitEl) waitEl.remove();
+
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${type}`;
+
+  const fromEmoji = fromLang === 'en' ? '🇬🇧' : '🇮🇳';
+  const toLang = fromLang === 'en' ? 'hi' : 'en';
+  const toEmoji = toLang === 'en' ? '🇬🇧' : '🇮🇳';
+  const who = type === 'sent' ? 'Aap' : 'Partner';
+
+  div.innerHTML = `
+    <div class="msg-meta">
+      <span class="msg-dot" style="background:${fromLang === 'en' ? 'var(--en)' : 'var(--hi)'}"></span>
+      ${who} ${fromEmoji}→${toEmoji}
+    </div>
+    <div class="msg-original">${escHtml(text)}</div>
+    <div class="msg-translated ${toLang}">${translated ? escHtml(translated) : '<span class="translating">Translating...</span>'}</div>
+  `;
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addSystemMsg(text) {
+  const container = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.style.cssText = 'text-align:center;color:var(--muted);font-size:.78rem;padding:4px';
+  div.textContent = text;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── SEND ──
+function sendMsg() {
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  if (!text) return;
+  socket.emit('message', { text });
+  input.value = '';
+  autoResize(input);
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMsg();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── UTILS ──
+function copyCode() {
+  navigator.clipboard.writeText(roomCode).then(() => showToast('✓ Code copy ho gaya!'));
+}
+
+function showLobbyError(msg) {
+  document.getElementById('lobby-error').textContent = msg;
+  setTimeout(() => document.getElementById('lobby-error').textContent = '', 3000);
+}
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
