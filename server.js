@@ -15,22 +15,45 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Store rooms: roomCode -> { en: socketId, hi: socketId }
 const rooms = {};
 
-async function translate(text, from, to) {
-  try {
-    console.log(`[translate] ${from}→${to}: "${text.slice(0, 60)}"`);
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
-    const response = await fetch(url);
-    const data = await response.json();
+// Check if text is Devanagari (actual Hindi script)
+function isDevanagari(text) {
+  return /[\u0900-\u097F]/.test(text);
+}
 
-    const result = data.responseData?.translatedText;
+async function myMemoryTranslate(text, from, to) {
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  return data.responseData?.translatedText || null;
+}
+
+async function translate(text, fromLang, toLang) {
+  try {
+    console.log(`[translate] ${fromLang}→${toLang}: "${text.slice(0, 60)}"`);
+
+    let result;
+
+    if (fromLang === 'hi' && !isDevanagari(text)) {
+      // Hindi user wrote in Roman/Hinglish (e.g. "mera naam anmol hai")
+      // Step 1: treat it as English, translate to Hindi (Devanagari)
+      const hindiDevanagari = await myMemoryTranslate(text, 'en', 'hi');
+      if (!hindiDevanagari) return null;
+      console.log(`[translate] Hinglish→Devanagari: "${hindiDevanagari}"`);
+      // Step 2: now translate that Devanagari Hindi to English
+      result = await myMemoryTranslate(hindiDevanagari, 'hi', 'en');
+    } else {
+      // Normal case: en→hi or Devanagari hi→en
+      result = await myMemoryTranslate(text, fromLang, toLang);
+    }
 
     if (!result) {
-      console.error('[translate] Empty result. Response:', JSON.stringify(data));
+      console.error('[translate] Empty result');
       return null;
     }
 
     console.log(`[translate] Result: "${result.slice(0, 80)}"`);
     return result;
+
   } catch (e) {
     console.error('[translate] Error:', e.message);
     return null;
@@ -71,7 +94,6 @@ io.on('connection', (socket) => {
     socket.lang = lang;
     socket.emit('joined', { code });
 
-    // Notify both users
     io.to(code).emit('partner-joined', { lang });
     console.log(`[room] ${lang} user joined ${code}`);
   });
@@ -84,14 +106,14 @@ io.on('connection', (socket) => {
     const room = rooms[code];
     if (!room) return;
 
-    // Send original to sender immediately (no translation yet)
+    // Send original to sender immediately
     socket.emit('chat', { text, lang: from, type: 'sent', translated: null });
 
     // Translate
     const translation = await translate(text, from, to);
     const finalTranslation = translation || '(translation unavailable)';
 
-    // Send translated to receiver
+    // Send to receiver
     const otherSocketId = room[to];
     if (otherSocketId) {
       io.to(otherSocketId).emit('chat', {
@@ -102,7 +124,7 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Update sender's message bubble with translation
+    // Update sender bubble with translation
     socket.emit('translation-update', {
       original: text,
       translated: finalTranslation,
