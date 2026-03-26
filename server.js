@@ -35,8 +35,11 @@ async function translate(text, from, to) {
       }
     );
     const data = await response.json();
+    console.log('Gemini response:', JSON.stringify(data).slice(0, 300));
+    if (data.error) console.error('Gemini error:', data.error.message);
     return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   } catch (e) {
+    console.error('Translate error:', e.message);
     return null;
   }
 }
