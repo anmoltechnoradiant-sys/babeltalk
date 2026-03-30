@@ -61,7 +61,7 @@ io.on('connection', (socket) => {
     socket.lang = lang;
     socket.emit('joined', { code });
     io.to(code).emit('partner-joined', { lang });
-    console.log(`[room] ${lang} user joined ${code}`);
+    console.log(`[room] ${lang} user joined ${code} — room state: ${JSON.stringify(room)}`);
   });
 
   // ── TEXT CHAT ──
@@ -70,7 +70,8 @@ io.on('connection', (socket) => {
     const from = socket.lang;
     const to = from === 'en' ? 'hi' : 'en';
     const room = rooms[code];
-    if (!room) return;
+    console.log(`[message] from=${from}, to=${to}, code=${code}, room=${JSON.stringify(room)}`);
+    if (!room || !from) return console.error('[message] Missing room or lang');
 
     socket.emit('chat', { text, lang: from, type: 'sent', translated: null });
 
@@ -78,8 +79,18 @@ io.on('connection', (socket) => {
     const finalTranslation = translation || '(translation unavailable)';
 
     const otherSocketId = room[to];
+    console.log(`[message] otherSocketId=${otherSocketId}`);
     if (otherSocketId) {
       io.to(otherSocketId).emit('chat', { text, lang: from, type: 'received', translated: finalTranslation });
+    } else {
+      // fallback: find other socket in same room with different lang
+      const socketsInRoom = await io.in(code).fetchSockets();
+      const other = socketsInRoom.find(s => s.id !== socket.id);
+      if (other) {
+        other.emit('chat', { text, lang: from, type: 'received', translated: finalTranslation });
+        room[to] = other.id; // fix the room record
+        console.log(`[message] Fixed missing socket: room[${to}]=${other.id}`);
+      }
     }
     socket.emit('translation-update', { original: text, translated: finalTranslation, to });
   });
