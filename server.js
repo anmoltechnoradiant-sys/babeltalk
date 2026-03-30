@@ -65,7 +65,7 @@ io.on('connection', (socket) => {
   });
 
   // ── TEXT CHAT ──
-  socket.on('message', async ({ text }) => {
+  socket.on('message', async ({ text, msgId }) => {
     const code = socket.roomCode;
     const from = socket.lang;
     const to = from === 'en' ? 'hi' : 'en';
@@ -73,7 +73,7 @@ io.on('connection', (socket) => {
     console.log(`[message] from=${from}, to=${to}, code=${code}, room=${JSON.stringify(room)}`);
     if (!room || !from) return console.error('[message] Missing room or lang');
 
-    socket.emit('chat', { text, lang: from, type: 'sent', translated: null });
+    socket.emit('chat', { msgId, text, lang: from, type: 'sent', translated: null });
 
     const translation = await translate(text, from, to);
     const finalTranslation = translation || '(translation unavailable)';
@@ -81,13 +81,13 @@ io.on('connection', (socket) => {
     const otherSocketId = room[to];
     console.log(`[message] otherSocketId=${otherSocketId}`);
     if (otherSocketId) {
-      io.to(otherSocketId).emit('chat', { text, lang: from, type: 'received', translated: finalTranslation });
+      io.to(otherSocketId).emit('chat', { msgId, text, lang: from, type: 'received', translated: finalTranslation });
     } else {
       // fallback: find other socket in same room with different lang
       const socketsInRoom = await io.in(code).fetchSockets();
       const other = socketsInRoom.find(s => s.id !== socket.id);
       if (other) {
-        other.emit('chat', { text, lang: from, type: 'received', translated: finalTranslation });
+        other.emit('chat', { msgId, text, lang: from, type: 'received', translated: finalTranslation });
         room[to] = other.id; // fix the room record
         console.log(`[message] Fixed missing socket: room[${to}]=${other.id}`);
       }
@@ -119,6 +119,24 @@ io.on('connection', (socket) => {
 
     // Show in sender's chat as well
     socket.emit('chat', { text, lang: from, type: 'sent', translated: finalTranslation });
+  });
+
+  // ── EDIT MESSAGE ──
+  socket.on('edit-message', async ({ msgId, text }) => {
+    const code = socket.roomCode;
+    const from = socket.lang;
+    const to = from === 'en' ? 'hi' : 'en';
+    const room = rooms[code];
+    if (!room) return;
+
+    const translation = await translate(text, from, to);
+    const finalTranslation = translation || text;
+
+    const otherSocketId = room[to];
+    if (otherSocketId) {
+      io.to(otherSocketId).emit('edit-message', { msgId, text, translated: finalTranslation });
+    }
+    console.log(`[edit] msgId=${msgId} updated: "${text.slice(0,40)}"`);
   });
 
   // ── WebRTC SIGNALING ──
