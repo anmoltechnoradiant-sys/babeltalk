@@ -17,7 +17,7 @@ const rooms = {};
 async function translate(text, from, to) {
   try {
     console.log(`[translate] ${from}→${to}: "${text.slice(0, 60)}"`);
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
     const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const data = await response.json();
     const result = data[0]?.map(chunk => chunk[0]).join('') || null;
