@@ -635,7 +635,7 @@ function liveTranslate(text) {
 
   liveTranslateTimer = setTimeout(async () => {
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=hi&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`;
       const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const data = await res.json();
       const result = data[0]?.map(c => c[0]).join('') || '';
