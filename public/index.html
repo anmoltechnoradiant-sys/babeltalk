@@ -321,11 +321,17 @@ socket.on('chat', ({ text, lang, type, translated }) => addMessage(text, lang, t
 socket.on('translation-update', ({ original, translated, to }) => {
   const msgs = document.querySelectorAll('.msg.sent');
   const last = msgs[msgs.length - 1];
-  if (last) {
-    const bubble = last.querySelector('.msg-bubble');
-    if (bubble && translated) bubble.textContent = translated;
-    const orig = last.querySelector('.msg-original-small');
-    if (orig) orig.textContent = '🔤 ' + original;
+  if (last && translated) {
+    // Main bubble stays as the sender's own language (already correct)
+    // Update or create the subtitle with the translation
+    const toEmoji = to === 'en' ? '🇬🇧' : '🇮🇳';
+    let sub = last.querySelector('.msg-original-small');
+    if (!sub) {
+      sub = document.createElement('div');
+      sub.className = 'msg-original-small';
+      last.appendChild(sub);
+    }
+    sub.textContent = `🌐 ${toEmoji} ${translated}`;
   }
 });
 
@@ -552,9 +558,12 @@ function addMessage(originalText, fromLang, type, translated, isVoice) {
   const who = type === 'sent' ? 'Aap' : 'Partner';
   const voiceIcon = isVoice ? '🎙️ ' : '';
 
-  // Show translated text as main bubble, original as small note
-  const mainText = translated || originalText;
-  const showOriginal = translated && translated !== originalText;
+  // Sender sees their own language as main bubble, translation as small note below
+  // Receiver sees translated language as main bubble, original as small note below
+  const isSent = type === 'sent';
+  const mainText = isSent ? originalText : (translated || originalText);
+  const subText  = isSent ? (translated || null) : (translated && translated !== originalText ? originalText : null);
+  const subLabel = isSent ? `🌐 ${toEmoji} ` : `🔤 ${fromEmoji} `;
 
   div.innerHTML = `
     <div class="msg-meta">
@@ -562,7 +571,7 @@ function addMessage(originalText, fromLang, type, translated, isVoice) {
       ${voiceIcon}${who} ${fromEmoji}→${toEmoji}
     </div>
     <div class="msg-bubble">${escHtml(mainText)}</div>
-    ${showOriginal ? `<div class="msg-original-small">🔤 ${escHtml(originalText)}</div>` : ''}
+    ${subText ? `<div class="msg-original-small">${subLabel}${escHtml(subText)}</div>` : ''}
   `;
 
   container.appendChild(div);
