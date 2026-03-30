@@ -323,20 +323,7 @@ socket.on('partner-left', () => {
 socket.on('chat', ({ text, lang, type, translated }) => addMessage(text, lang, type, translated, false));
 
 socket.on('translation-update', ({ original, translated, to }) => {
-  const msgs = document.querySelectorAll('.msg.sent');
-  const last = msgs[msgs.length - 1];
-  if (last && translated) {
-    // Main bubble stays as the sender's own language (already correct)
-    // Update or create the subtitle with the translation
-    const toEmoji = to === 'en' ? '🇬🇧' : '🇮🇳';
-    let sub = last.querySelector('.msg-original-small');
-    if (!sub) {
-      sub = document.createElement('div');
-      sub.className = 'msg-original-small';
-      last.appendChild(sub);
-    }
-    sub.textContent = `🌐 ${toEmoji} ${translated}`;
-  }
+  // subtitle removed, nothing to update
 });
 
 // ── CALL SIGNALING ──
@@ -575,7 +562,6 @@ function addMessage(originalText, fromLang, type, translated, isVoice) {
       ${voiceIcon}${who} ${fromEmoji}→${toEmoji}
     </div>
     <div class="msg-bubble">${escHtml(mainText)}</div>
-    ${subText ? `<div class="msg-original-small">${subLabel}${escHtml(subText)}</div>` : ''}
   `;
 
   container.appendChild(div);
