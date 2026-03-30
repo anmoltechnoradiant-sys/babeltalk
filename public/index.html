@@ -144,6 +144,16 @@ input.room-input::placeholder { color: var(--muted); }
 .msg.received .msg-bubble { border-radius: 16px 16px 16px 4px; }
 .msg-original-small { font-size: .72rem; color: var(--muted); font-style: italic; padding: 2px 6px; }
 .msg.voice .msg-bubble { border-color: rgba(74,222,128,0.3); }
+.msg-edit-btn { display: none; font-size: .65rem; color: var(--muted); background: none; border: none; cursor: pointer; padding: 0 2px; transition: color .2s; }
+.msg-edit-btn:hover { color: var(--en); }
+.msg.sent:hover .msg-edit-btn { display: inline; }
+.msg.sent .msg-bubble { cursor: default; }
+.msg-edited-tag { font-size: .6rem; color: var(--muted); font-style: italic; margin-left: 4px; }
+.edit-mode-bar { display: none; padding: 6px 20px 0; background: var(--surface); border-top: 1px dashed var(--hi); }
+.edit-mode-bar.show { display: flex; align-items: center; gap: 8px; }
+.edit-mode-label { font-family: 'DM Mono', monospace; font-size: .65rem; color: var(--hi); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+.edit-cancel-btn { padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: none; color: var(--muted); font-size: .75rem; cursor: pointer; white-space: nowrap; }
+.edit-cancel-btn:hover { border-color: var(--red); color: var(--red); }
 
 .waiting-msg { text-align: center; color: var(--muted); font-size: .85rem; margin: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .waiting-msg .big { font-size: 2.5rem; }
@@ -249,6 +259,10 @@ input.room-input::placeholder { color: var(--muted); }
     </div>
   </div>
 
+  <div class="edit-mode-bar" id="edit-mode-bar">
+    <span class="edit-mode-label">✏️ Editing</span>
+    <button class="edit-cancel-btn" onclick="cancelEdit()">✕ Cancel</button>
+  </div>
   <div class="input-bar">
     <textarea class="msg-input" id="msg-input" placeholder="Type a message..." rows="1"
       onkeydown="handleKey(event)" oninput="autoResize(this); liveTranslate(this.value)"></textarea>
@@ -320,7 +334,23 @@ socket.on('partner-left', () => {
   if (isInCall) endCall();
 });
 
-socket.on('chat', ({ text, lang, type, translated }) => addMessage(text, lang, type, translated, false));
+socket.on('chat', ({ msgId, text, lang, type, translated }) => addMessage(text, lang, type, translated, false, msgId));
+
+socket.on('edit-message', async ({ msgId, text, translated }) => {
+  // Find the received message with this msgId and update it
+  const msgEl = document.querySelector(`[data-msgid="${msgId}"]`);
+  if (msgEl) {
+    const bubble = msgEl.querySelector('.msg-bubble');
+    bubble.textContent = translated || text;
+    let tag = msgEl.querySelector('.msg-edited-tag');
+    if (!tag) {
+      tag = document.createElement('span');
+      tag.className = 'msg-edited-tag';
+      msgEl.querySelector('.msg-meta').appendChild(tag);
+    }
+    tag.textContent = '(edited)';
+  }
+});
 
 socket.on('translation-update', ({ original, translated, to }) => {
   // subtitle removed, nothing to update
@@ -535,7 +565,7 @@ function setStatus(online, text) {
 }
 
 // ── MESSAGES ──
-function addMessage(originalText, fromLang, type, translated, isVoice) {
+function addMessage(originalText, fromLang, type, translated, isVoice, msgId) {
   const waitEl = document.getElementById('waiting-msg');
   if (waitEl) waitEl.remove();
 
@@ -556,10 +586,14 @@ function addMessage(originalText, fromLang, type, translated, isVoice) {
   const subText  = isSent ? (translated || null) : (translated && translated !== originalText ? originalText : null);
   const subLabel = isSent ? `🌐 ${toEmoji} ` : `🔤 ${fromEmoji} `;
 
+  const msgId_ = msgId || ('msg-' + Date.now() + '-' + Math.random().toString(36).slice(2,6));
+  div.dataset.msgid = msgId_;
+
   div.innerHTML = `
     <div class="msg-meta">
       <span class="msg-dot" style="background:${fromLang === 'en' ? 'var(--en)' : 'var(--hi)'}"></span>
       ${voiceIcon}${who} ${fromEmoji}→${toEmoji}
+      ${isSent ? `<button class="msg-edit-btn" onclick="startEdit('${msgId_}')">✏️ edit</button>` : ''}
     </div>
     <div class="msg-bubble">${escHtml(mainText)}</div>
   `;
@@ -578,15 +612,64 @@ function addSystemMsg(text) {
 }
 
 // ── SEND TEXT ──
+let editingMsgId = null;
+
+function startEdit(msgId) {
+  const msgEl = document.querySelector(`[data-msgid="${msgId}"]`);
+  if (!msgEl) return;
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const currentText = bubble.dataset.original || bubble.textContent;
+  editingMsgId = msgId;
+  const input = document.getElementById('msg-input');
+  input.value = currentText;
+  input.focus();
+  autoResize(input);
+  document.getElementById('edit-mode-bar').classList.add('show');
+  document.getElementById('send-btn').textContent = '✓';
+  if (myLang === 'hi') liveTranslate(currentText);
+}
+
+function cancelEdit() {
+  editingMsgId = null;
+  const input = document.getElementById('msg-input');
+  input.value = '';
+  autoResize(input);
+  document.getElementById('edit-mode-bar').classList.remove('show');
+  document.getElementById('send-btn').textContent = '➤';
+  document.getElementById('live-translation-bar').style.display = 'none';
+  document.getElementById('live-translation-text').textContent = '';
+}
+
 function sendMsg() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
   if (!text) return;
-  socket.emit('message', { text });
-  input.value = '';
-  autoResize(input);
-  document.getElementById('live-translation-bar').style.display = 'none';
-  document.getElementById('live-translation-text').textContent = '';
+
+  if (editingMsgId) {
+    // Edit mode — update bubble locally and notify partner
+    const msgEl = document.querySelector(`[data-msgid="${editingMsgId}"]`);
+    if (msgEl) {
+      const bubble = msgEl.querySelector('.msg-bubble');
+      bubble.textContent = text;
+      bubble.dataset.original = text;
+      // Add/update edited tag
+      let tag = msgEl.querySelector('.msg-edited-tag');
+      if (!tag) {
+        tag = document.createElement('span');
+        tag.className = 'msg-edited-tag';
+        msgEl.querySelector('.msg-meta').appendChild(tag);
+      }
+      tag.textContent = '(edited)';
+    }
+    socket.emit('edit-message', { msgId: editingMsgId, text });
+    cancelEdit();
+  } else {
+    socket.emit('message', { text, msgId: 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2,6) });
+    input.value = '';
+    autoResize(input);
+    document.getElementById('live-translation-bar').style.display = 'none';
+    document.getElementById('live-translation-text').textContent = '';
+  }
 }
 
 function handleKey(e) {
