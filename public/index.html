@@ -251,8 +251,12 @@ input.room-input::placeholder { color: var(--muted); }
 
   <div class="input-bar">
     <textarea class="msg-input" id="msg-input" placeholder="Type a message..." rows="1"
-      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      onkeydown="handleKey(event)" oninput="autoResize(this); liveTranslate(this.value)"></textarea>
     <button class="send-btn" id="send-btn" onclick="sendMsg()">➤</button>
+  </div>
+  <div id="live-translation-bar" style="display:none; padding: 6px 20px 10px; background: var(--surface); border-top: 1px dashed var(--border);">
+    <div style="font-family:'DM Mono',monospace; font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">🌐 English preview</div>
+    <div id="live-translation-text" style="font-size:.82rem; color:var(--en); line-height:1.4; font-style:italic;"></div>
   </div>
 </div>
 
@@ -595,6 +599,8 @@ function sendMsg() {
   socket.emit('message', { text });
   input.value = '';
   autoResize(input);
+  document.getElementById('live-translation-bar').style.display = 'none';
+  document.getElementById('live-translation-text').textContent = '';
 }
 
 function handleKey(e) {
@@ -615,7 +621,35 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
-function escHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// ── LIVE TRANSLATION PREVIEW (Hindi users only) ──
+let liveTranslateTimer = null;
+function liveTranslate(text) {
+  if (myLang !== 'hi') return;
+  const bar = document.getElementById('live-translation-bar');
+  const el = document.getElementById('live-translation-text');
+  if (!text.trim()) { bar.style.display = 'none'; el.textContent = ''; return; }
+
+  clearTimeout(liveTranslateTimer);
+  el.style.opacity = '0.4';
+  bar.style.display = 'block';
+
+  liveTranslateTimer = setTimeout(async () => {
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=hi&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const data = await res.json();
+      const result = data[0]?.map(c => c[0]).join('') || '';
+      if (result && result !== text) {
+        el.textContent = result;
+        el.style.opacity = '1';
+      } else {
+        bar.style.display = 'none';
+      }
+    } catch(e) { bar.style.display = 'none'; }
+  }, 500);
+}
+
+ { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 </script>
 </body>
 </html>
