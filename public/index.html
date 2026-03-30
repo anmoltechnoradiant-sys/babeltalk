@@ -183,7 +183,7 @@ input.room-input::placeholder { color: var(--muted); }
       </div>
     </div>
     <div class="divider">Or join a room</div>
-    <input class="room-input" id="room-code-input" placeholder="Write room code here" />
+    <input class="room-input" id="room-code-input" placeholder="Enter room code here" />
     <div class="btn-group">
       <button class="btn btn-create" id="btn-create" onclick="createRoom()" disabled>+ Create New Room</button>
       <button class="btn btn-join" id="btn-join" onclick="joinRoom()" disabled>→ Join a Room</button>
@@ -197,7 +197,7 @@ input.room-input::placeholder { color: var(--muted); }
   <div class="call-modal">
     <div class="call-avatar">📞</div>
     <h3>Incoming Call</h3>
-    <p id="call-overlay-msg">Partner call kar raha hai...</p>
+    <p id="call-overlay-msg">Your partner is calling...</p>
     <div class="call-actions">
       <button class="accept-btn" onclick="acceptCall()">📞</button>
       <button class="decline-btn" onclick="rejectCall()">📵</button>
@@ -244,13 +244,13 @@ input.room-input::placeholder { color: var(--muted); }
   <div class="messages" id="messages">
     <div class="waiting-msg" id="waiting-msg">
       <div class="big">⏳</div>
-      <div>Doosre bande ka intezaar hai...</div>
-      <div style="font-size:.78rem">Upar wala room code share karo</div>
+      <div>Waiting for your partner...</div>
+      <div style="font-size:.78rem">Share the room code above to invite them</div>
     </div>
   </div>
 
   <div class="input-bar">
-    <textarea class="msg-input" id="msg-input" placeholder="Type karo..." rows="1"
+    <textarea class="msg-input" id="msg-input" placeholder="Type a message..." rows="1"
       onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
     <button class="send-btn" id="send-btn" onclick="sendMsg()">➤</button>
   </div>
@@ -290,8 +290,8 @@ function selectLang(lang) {
 function createRoom() { if (!myLang) return; socket.emit('create-room', { lang: myLang }); }
 function joinRoom() {
   const code = document.getElementById('room-code-input').value.trim().toLowerCase();
-  if (!code) return showLobbyError('Room code likhna zaroori hai!');
-  if (!myLang) return showLobbyError('Pehle language select karo!');
+  if (!code) return showLobbyError('Please enter a room code!');
+  if (!myLang) return showLobbyError('Please select your language first!');
   socket.emit('join-room', { code, lang: myLang });
 }
 
@@ -303,16 +303,16 @@ socket.on('error', ({ msg }) => showLobbyError(msg));
 socket.on('partner-joined', ({ lang }) => {
   partnerOnline = true;
   document.getElementById('waiting-msg')?.remove();
-  setStatus(true, `${lang === 'en' ? '🇬🇧 English' : '🇮🇳 Hindi'} wala join ho gaya!`);
+  setStatus(true, `Partner joined!`);
   document.getElementById('call-btn').disabled = false;
-  showToast('✅ Doosra banda join ho gaya!');
+  showToast(`✅ Your partner has joined!`);
 });
 
 socket.on('partner-left', () => {
   partnerOnline = false;
-  setStatus(false, 'Partner chala gaya');
+  setStatus(false, 'Partner disconnected');
   document.getElementById('call-btn').disabled = true;
-  addSystemMsg('⚠️ Doosra banda disconnect ho gaya');
+  addSystemMsg('⚠️ Your partner has left the chat');
   if (isInCall) endCall();
 });
 
@@ -341,17 +341,17 @@ socket.on('call-request', () => {
 });
 
 socket.on('call-accept', async () => {
-  showToast('📞 Call accept ho gayi!');
+  showToast('📞 Call accepted!');
   await setupPeerConnection(true);
 });
 
 socket.on('call-reject', () => {
-  showToast('❌ Call reject ho gayi');
+  showToast('❌ Call was declined');
   isCaller = false;
 });
 
 socket.on('call-end', () => {
-  showToast('📵 Call end ho gayi');
+  showToast('📵 Call ended');
   cleanupCall();
 });
 
@@ -383,10 +383,10 @@ socket.on('speak-translated', ({ original, translated, fromLang, toLang }) => {
 
 // ── CALL FUNCTIONS ──
 async function startCall() {
-  if (!partnerOnline) return showToast('Partner online nahi hai');
+  if (!partnerOnline) return showToast('Partner is not online');
   isCaller = true;
   socket.emit('call-request');
-  showToast('📞 Call request bhej di...');
+  showToast('📞 Sending call request...');
 }
 
 async function acceptCall() {
@@ -404,7 +404,7 @@ async function setupPeerConnection(isInitiator) {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch(e) {
-    showToast('❌ Microphone access nahi mila');
+    showToast('❌ Microphone access denied');
     return;
   }
 
@@ -534,8 +534,8 @@ function enterChatScreen() {
   cs.style.display = 'flex';
   document.getElementById('share-code').value = roomCode;
   const langLabel = myLang === 'en' ? '🇬🇧 English' : '🇮🇳 Hindi';
-  document.getElementById('my-lang-label').textContent = `Aap: ${langLabel}`;
-  setStatus(false, 'Waiting for partner...');
+  document.getElementById('my-lang-label').textContent = `You: ${langLabel}`;
+  setStatus(false, 'Waiting for partner to join...');
 }
 
 function setStatus(online, text) {
@@ -555,7 +555,7 @@ function addMessage(originalText, fromLang, type, translated, isVoice) {
   const fromEmoji = fromLang === 'en' ? '🇬🇧' : '🇮🇳';
   const toLang = fromLang === 'en' ? 'hi' : 'en';
   const toEmoji = toLang === 'en' ? '🇬🇧' : '🇮🇳';
-  const who = type === 'sent' ? 'Aap' : 'Partner';
+  const who = type === 'sent' ? 'You' : 'Partner';
   const voiceIcon = isVoice ? '🎙️ ' : '';
 
   // Sender sees their own language as main bubble, translation as small note below
@@ -603,7 +603,7 @@ function handleKey(e) {
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }
 
 // ── UTILS ──
-function copyCode() { navigator.clipboard.writeText(roomCode).then(() => showToast('✓ Code copy ho gaya!')); }
+function copyCode() { navigator.clipboard.writeText(roomCode).then(() => showToast('✓ Room code copied!')); }
 function showLobbyError(msg) {
   document.getElementById('lobby-error').textContent = msg;
   setTimeout(() => document.getElementById('lobby-error').textContent = '', 3000);
